@@ -1,0 +1,47 @@
+# Connect to Office 365
+Connect-MsolService
+
+# Prompt for the email address
+$userEmail = Read-Host "Enter the email address of the user to import"
+
+# Fetch the user from Office 365
+$o365User = Get-MsolUser -UserPrincipalName $userEmail | Select-Object City, Country, Department, DisplayName, Fax, FirstName, LastName, MobilePhone, Office, PhoneNumber, PostalCode, State, StreetAddress, Title, UserPrincipalName
+
+if ($null -eq $o365User) {
+    Write-Host "User not found in Office 365."
+    exit
+}
+
+# Generate Password using DinoPass
+$Password = Invoke-WebRequest -Uri https://www.dinopass.com/password/strong | Select-Object -ExpandProperty content
+
+# Import the user to local AD
+$userParams = @{
+    Name = $o365User.DisplayName
+    GivenName = $o365User.FirstName
+    Surname = $o365User.LastName
+    SamAccountName = ($o365User.UserPrincipalName -split '@')[0]
+    UserPrincipalName = $o365User.UserPrincipalName
+    DisplayName = $o365User.DisplayName
+    City = $o365User.City
+    State = $o365User.State
+    Country = $o365User.Country
+    Title = $o365User.Title
+    Department = $o365User.Department
+    OfficePhone = $o365User.PhoneNumber
+    MobilePhone = $o365User.MobilePhone
+    Fax = $o365User.Fax
+    StreetAddress = $o365User.StreetAddress
+    PostalCode = $o365User.PostalCode
+    Office = $o365User.Office
+    Enabled = $true
+    AccountPassword = ($Password | ConvertTo-SecureString -AsPlainText -Force)
+    ChangePasswordAtLogon = $true
+}
+
+try {
+    New-ADUser @userParams -ErrorAction Stop
+    Write-Host "User successfully created in local AD: $($o365User.DisplayName) with password: $($Password)"
+} catch {
+    Write-Host "Error creating user in local AD: $_"
+}
