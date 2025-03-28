@@ -49,11 +49,11 @@ if ($is_domain_member) {
             Write-Output "Time source is $($time_source). Updating time source..."
             w32tm.exe /config /syncfromflags:manual /manualpeerlist:"$($env:ntp_peer_list)" /reliable:yes /update
         }
-        Elseif ($env:updatePdc) {
-            Write-output "Time is currently synchronzing with $($time_source), but UpdatePDC is $($env:updatePdc) so we're changing it."
+        Elseif ($env:updatePdc -eq "true") {
+            Write-output "Time is currently synchronzing with an external source, but UpdatePDC is true so we're changing it."
             w32tm.exe /config /syncfromflags:manual /manualpeerlist:"$($env:ntp_peer_list)" /reliable:yes /update
         } Else {
-            Write-Warning "Time is synchronizing with $($time_source), but UpdatePDC is $($updatedpc) so we're not changing it."
+            Write-Warning "Time is synchronizing with an external source, but UpdatePDC is not true so we're not changing it."
         }
     }
     else {
