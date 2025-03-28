@@ -1,0 +1,96 @@
+## Confirm time sychronization settings
+#
+# Time Logic:
+# 1. A PDC should synchronize with the external time server(s).
+# 2. Domain members should synchronize with the PDC.
+# 3. Non-domain members should synchronize with the external time server(s).
+#
+# Script requires the following variables defined in NinjaRMM:
+#   ntp_peer_list [String/Text]
+#        Example/Default value format: time.nist.gov,0x8 us.pool.ntp.org,0x8 time.cloudflare.com,0x8
+#   Update PDC [CheckBox]
+
+# Beginning with assumption that we're not a PDC
+$is_PDC = $false
+
+# Get the current NTP configuration
+$NTPreg = "HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Parameters"
+$NTPtype = (Get-ItemProperty -Path $NTPreg).Type
+$NTPserver = (Get-ItemProperty -Path $NTPreg).NtpServer
+
+# Get the current time source
+$time_source = w32tm /query /source
+
+# Get the domain membership status
+$computer_system = Get-CimInstance Win32_ComputerSystem
+$is_domain_member = $computer_system.PartOfDomain
+
+# Get the FQDN of the local computer
+$local_computer = $computer_system.DNSHostName + "." + $computer_system.Domain
+
+# If we're a domain member, find the PDC, and act appropriate with known information.
+if ($is_domain_member) {
+    # Look for PDC
+    try {
+        $pdc = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().PdcRoleOwner.Name
+        Write-Output "Located PDC: $pdc"
+    }
+    catch {
+        Write-Error "Domain joined but PDC lookup failed: $_"
+        Exit 1
+    }
+
+    if ($local_computer -eq $pdc) {
+        # Computer is a PDC
+        $is_PDC = $true
+        Write-Output "This computer is a PDC."
+        If ($time_source -eq "Free-running System Clock") {
+            # Time is not synchronizing with anything
+            Write-Output "Time source is $($time_source). Updating time source..."
+            w32tm.exe /config /syncfromflags:manual /manualpeerlist:"$($env:ntp_peer_list)" /reliable:yes /update
+        }
+        Elseif ($env:updatePdc) {
+            Write-output "Time is currently synchronzing with $($time_source), but UpdatePDC is $($env:updatePdc) so we're changing it."
+            w32tm.exe /config /syncfromflags:manual /manualpeerlist:"$($env:ntp_peer_list)" /reliable:yes /update
+        } Else {
+            Write-Warning "Time is synchronizing with $($time_source), but UpdatePDC is $($updatedpc) so we're not changing it."
+        }
+    }
+    else {
+        Write-Output "This computer is a domain member but not a PDC."
+        if (($NTPtype -eq "NT5DS")) {
+            Write-Output "Time synchronization is correctly set to use the domain hierarchy."
+            Write-Output "Current time source: $time_source"
+        }
+        else {
+            Write-Output "Updating Time syncronization to use the domain hierarchy..."
+            w32tm.exe /config /syncfromflags:domhier /update
+        }
+    }
+}
+else {
+    Write-Output "System is not domain-joined. Updating NTP configuration..."
+    w32tm.exe /config /syncfromflags:manual /manualpeerlist:"$($env:ntp_peer_list)" /reliable:yes /update
+}
+
+# Restart the Windows Time service
+Write-Output "Restarting Time service..."
+Restart-Service w32time
+
+# Force a time sync
+Write-Output "Synchronizing time..."
+w32tm /resync /force
+
+# Pull the updated configuration
+$NTPtype = (Get-ItemProperty -Path $NTPreg).Type
+$NTPserver = (Get-ItemProperty -Path $NTPreg).NtpServer
+$time_source = w32tm /query /source
+
+# Output the results
+Write-Output "Time configuration summary:"
+Write-Output "Computer: $($local_computer)"
+Write-Output "Domain member: $($is_domain_member)"
+Write-Output "Is PDC: $($is_PDC)"
+Write-Output "NTP Type: $($NTPtype)"
+Write-Output "NTP Server: $($NTPserver)"
+Write-Output "Current Time Source: $($time_source)"
